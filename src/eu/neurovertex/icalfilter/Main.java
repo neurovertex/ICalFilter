@@ -20,7 +20,8 @@ public class Main {
 		opts.addOption("i", "inclusive", false, "Only accepts events that match the filters. Default is exclusive");
 		opts.addOption("q", "quiet", false, "Quiet mode. Won't output anything except errors.");
 		opts.addOption("v", "verbose", false, "Verbose mode. More detailed output, will print the list of event (once per different summary) in the output file.");
-		opts.addOption("n", "normalize", true, "Normalise the filters file (removes ASCII characters) and write it to ARG");
+		opts.addOption("n", "normalize", true, "Normalise the filters file (removes ASCII characters, convert to JSON) and write it to ARG");
+		opts.addOption("p", "plain-text", false, "Reads the filters file as plain text instead of the default JSON");
 		opts.addOption("vv", "very-verbose", false, "Very verbose mode. Will display for each event if it matches each filter.");
 		HelpFormatter formatter = new HelpFormatter();
 
@@ -42,8 +43,11 @@ public class Main {
 			} else if (args.length != 3) {
 				if (cli.hasOption("n") && args.length == 1) {
 					CalendarFilter filter = new CalendarFilter(cli.hasOption("inclusive"));
-					filter.importFromFile(new File(args[0]));
-					filter.exportToFile(new File(cli.getOptionValue('n')));
+					if (cli.hasOption('p'))
+						filter.importPlainText(new File(args[0]));
+					else
+						filter.importJSON(new File(args[0]));
+					filter.exportJSON(new File(cli.getOptionValue('n')));
 					System.out.println("Wrote normalized rules to "+ cli.getOptionValue('n'));
 				} else
 					throw new ParseException("Needs more arguments");
@@ -51,7 +55,10 @@ public class Main {
 				CalendarIO io = new CalendarIO(args[0], args[1]);
 				io.read();
 				CalendarFilter filter = new CalendarFilter(cli.hasOption("inclusive"));
-				filter.importFromFile(new File(args[2]));
+				if (cli.hasOption('p'))
+					filter.importPlainText(new File(args[2]));
+				else
+					filter.importJSON(new File(args[2]));
 				int total = io.getEventCount();
 				int kept = io.filter(filter);
 				if (!quiet)
@@ -67,7 +74,7 @@ public class Main {
 			System.exit(-1);
 		} catch (ParseException e) {
 			formatter.printHelp("java -jar ICalFilter.jar [OPTIONS]... <INPUT> <OUTPUT> <FILTERS>\njava -jar ICalFilter.jar -n <OUTPUT> [OPTIONS]... <FILTERS>", "\nFilters elements from INPUT and write it to OUTPUT. " +
-					"Each line in the FILTERS file is considered a filter, an event matches if its summary contains at least one of the filters. " +
+					"The filters must be formatted in JSON, see https://github.com/neurovertex/ICalFilter for details. " +
 					"Matching events are removed, unless --inclusive is specified then non-matching events are removed. " +
 					"Non-ASCII (InBasic_Latin) characters are ignored during the matching process (event names won't be modified in the output file).", opts, "", false);
 			System.exit(e.getMessage().equals("help") ? 0 : -1);

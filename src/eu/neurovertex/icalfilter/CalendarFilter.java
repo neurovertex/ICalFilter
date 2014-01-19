@@ -1,30 +1,43 @@
 package eu.neurovertex.icalfilter;
 
 import biweekly.component.VEvent;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
 
 import java.io.*;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * @author Neurovertex
  *         Date: 19/01/14, 04:33
  */
 public class CalendarFilter {
-	private List<String> filters = new ArrayList<>();
+	private static final Type filtersType = new TypeToken<ArrayList<Filter>>() {
+	}.getType();
+	private List<Filter> filters = new ArrayList<>();
 	private boolean exclusive;
 
 	public CalendarFilter(boolean inclusive) {
 		this.exclusive = !inclusive;
-		for (int i = 0; i < filters.size(); i++)
-			filters.set(i, filters.get(i).toLowerCase());
 	}
 
-	public void setFilters(List<String> filters) {
-		this.filters = new ArrayList<>(filters);
+	public void importJSON(File f) throws IOException {
+		Gson gson = new Gson();
+		JsonReader reader = new JsonReader(new FileReader(f));
+		filters = gson.fromJson(reader, filtersType);
+		if (Main.verbose) {
+			System.out.println("Importing filters (" + filters.size() + ") : ");
+			for (Filter filter : filters)
+				System.out.println(filter.filter);
+		}
 	}
 
-	public void importFromFile(File f) throws IOException {
+	public void importPlainText(File f) throws IOException {
 		BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(f), "UTF8"));
 		String line;
 		if (Main.verbose)
@@ -32,7 +45,7 @@ public class CalendarFilter {
 		while ((line = in.readLine()) != null) {
 			if (line.length() > 0) {
 				line = removeNonASCII(line);
-				filters.add(line);
+				filters.add(new Filter(line, false, true, false));
 				if (Main.verbose)
 					System.out.println(line);
 			}
@@ -40,20 +53,21 @@ public class CalendarFilter {
 		in.close();
 	}
 
-	public void exportToFile(File f) throws IOException {
-		PrintWriter out = new PrintWriter(new OutputStreamWriter(new FileOutputStream(f), "UTF8"));
-		for (String s : filters)
-			out.println(s);
+	public void exportJSON(File file) throws IOException {
+		PrintWriter out = new PrintWriter(new OutputStreamWriter(new FileOutputStream(file), "UTF8"));
+		Gson gson = new GsonBuilder().setPrettyPrinting().create();
+		out.print(gson.toJson(filters, filtersType));
+
 		out.close();
 	}
 
 	public boolean filter(VEvent ev) {
 		boolean contains = false;
-		for (String s : filters) {
-			String sum = removeNonASCII(ev.getSummary().getValue().toLowerCase());
+		for (Filter f : filters) {
+			String val = removeNonASCII((f.matchDescription ? ev.getDescription() : ev.getSummary()).getValue().toLowerCase());
 			if (Main.veryVerbose)
-				System.out.println(sum +" : "+ s.toLowerCase() +" : "+ sum.contains(s.toLowerCase()));
-			if (sum.contains(s.toLowerCase())) {
+				System.out.print(String.format("%s : %s", val, f.filter));
+			if (f.getPattern().matcher(val).find()) {
 				contains = true;
 				break;
 			}
@@ -63,5 +77,38 @@ public class CalendarFilter {
 
 	public static String removeNonASCII(String s) {
 		return s.replaceAll("\\P{InBasic_Latin}", "");
+	}
+
+	private class Filter {
+		private String filter = null;
+		private boolean regex = false;
+		private boolean caseInsensitive = true;
+		private boolean matchDescription = false; // Matches the pattern against the description instead of the summary
+
+		private transient Pattern pattern;
+
+		@SuppressWarnings("UnusedDeclaration")
+		private Filter() {
+		}
+
+		public Filter(String filter, boolean regex, boolean caseInsensitive, boolean desc) {
+			this.filter = filter;
+			this.regex = regex;
+			this.caseInsensitive = caseInsensitive;
+			this.matchDescription = desc;
+		}
+
+		public Pattern getPattern() {
+			if (pattern == null) {
+				int flags = Pattern.UNICODE_CASE + Pattern.UNICODE_CHARACTER_CLASS + (caseInsensitive ? Pattern.CASE_INSENSITIVE : 0);
+				if (regex) {
+					pattern = Pattern.compile(filter, flags);
+				} else {
+					pattern = Pattern.compile(Pattern.quote(filter), flags);
+				}
+			}
+			return pattern;
+		}
+
 	}
 }
